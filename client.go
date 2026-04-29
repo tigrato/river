@@ -767,6 +767,7 @@ func NewClient[TTx any](driver riverdriver.Driver[TTx], config *Config) (*Client
 
 	client.queues = &QueueBundle{
 		addProducer:             client.addProducer,
+		removeProducer:          client.removeProducer,
 		clientFetchCooldown:     config.FetchCooldown,
 		clientFetchPollInterval: config.FetchPollInterval,
 		clientWillExecuteJobs:   config.willExecuteJobs(),
@@ -2198,6 +2199,17 @@ func (c *Client[TTx]) addProducer(queueName string, queueConfig QueueConfig) (*p
 	return producer, nil
 }
 
+func (c *Client[TTx]) removeProducer(queueName string) {
+	producer, ok := c.producersByQueueName[queueName]
+	if !ok {
+		return
+	}
+
+	producer.Stop()
+
+	delete(c.producersByQueueName, queueName)
+}
+
 var nameRegex = regexp.MustCompile(`^(?:[a-z0-9])+(?:[_|\-]?[a-z0-9]+)*$`)
 
 func validateQueueName(queueName string) error {
@@ -2781,6 +2793,8 @@ type QueueBundle struct {
 	// Function that adds a producer to the associated client.
 	addProducer func(queueName string, queueConfig QueueConfig) (*producer, error)
 
+	removeProducer func(queueName string)
+
 	clientFetchCooldown     time.Duration
 	clientFetchPollInterval time.Duration
 
@@ -2822,6 +2836,17 @@ func (b *QueueBundle) Add(queueName string, queueConfig QueueConfig) error {
 			return err
 		}
 	}
+
+	return nil
+}
+
+// Remove removes a queue from the client. If the client is already started,
+// the producer for the queue is stopped.
+func (b *QueueBundle) Remove(queueName string) error {
+	b.startStopMu.Lock()
+	defer b.startStopMu.Unlock()
+
+	b.removeProducer(queueName)
 
 	return nil
 }
